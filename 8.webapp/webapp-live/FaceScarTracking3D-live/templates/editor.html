@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Polygon Editor — {{ scan_id }}</title>
+<link rel="stylesheet" href="{{ static_prefix }}/editor.css" />
+</head>
+<body>
+  <div class="app">
+    <div class="topbar">
+      <div>
+        {% if back_url %}<a href="{{ back_url }}" class="btn" style="text-decoration:none; margin-right:12px;">← All scans</a>{% endif %}
+        <span class="scan-id">{{ scan_id }}</span>
+        <span class="status" id="status" style="margin-left:12px;"></span>
+      </div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn" id="btn-new-polygon">+ New Polygon</button>
+        <button class="btn primary" id="btn-finish-polygon" disabled>Finish Polygon</button>
+        <button class="btn" id="btn-undo">Undo (Ctrl+Z)</button>
+        <button class="btn" id="btn-reset-view">Reset View</button>
+        <button class="btn primary" id="btn-save">Save</button>
+      </div>
+    </div>
+
+    <div class="sidebar-left">
+      <div class="section-title">Regions</div>
+      <div id="region-list"></div>
+    </div>
+
+    <div class="canvas-wrap" id="canvas-wrap">
+      <canvas id="editor-canvas"></canvas>
+      <div class="hint">
+        Click to add points · once 3+ points are placed, click the green-ringed first point,
+        press <strong>Finish Polygon</strong>, or hit <strong>Enter</strong> to close it<br/>
+        Drag a point to move it · Right-click a point to delete it · Delete key removes selected region<br/>
+        Scroll to zoom · Alt+drag or middle-mouse to pan
+      </div>
+    </div>
+
+    <div class="sidebar-right">
+      <div class="section-title">Scan Info</div>
+      <div class="field">
+        <label>Scan ID</label>
+        <div>{{ scan_id }}</div>
+      </div>
+      <div class="field">
+        <label>Image size</label>
+        <div id="image-size-display">—</div>
+      </div>
+      <div class="section-title">Legend</div>
+      <div class="empty-note">
+        Regions loaded from SAM2 show as <strong>sam2</strong> source. Anything you draw
+        or edit is marked <strong>manual</strong>/<strong>manual_edit</strong> on save.
+      </div>
+
+      <div class="section-title">Other Files</div>
+      <div id="extra-files-list" class="empty-note">Loading…</div>
+    </div>
+  </div>
+
+  <div id="modal-overlay" class="modal-overlay hidden">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span id="modal-title">—</span>
+        <button class="btn" id="modal-close">✕</button>
+      </div>
+      <div class="modal-body" id="modal-body"></div>
+    </div>
+  </div>
+
+  <script>
+    window.EDITOR_CONFIG = {
+      scanId: {{ scan_id | tojson }},
+      imageUrl: {{ image_url | tojson }},
+      polygonsUrl: {{ polygons_url | tojson }},
+      polygonsSaveUrl: {{ polygons_save_url | tojson }},
+      scanFilesUrl: {{ ("/api/scan_files/" + scan_id) | tojson }},
+    };
+  </script>
+  <script src="{{ static_prefix }}/editor.js"></script>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module" src="{{ static_prefix }}/viewer3d.js"></script>
+  <script src="{{ static_prefix }}/scan_files.js"></script>
+</body>
+</html>

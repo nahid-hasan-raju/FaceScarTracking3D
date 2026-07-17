@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>{{ patient }} — Timepoints</title>
+<style>
+  body { font-family: -apple-system, sans-serif; background: #1b1e24; color: #e6e8ec; margin: 0; padding: 24px; }
+  .breadcrumb { font-size: 13px; color: #9198a6; margin-bottom: 10px; }
+  .breadcrumb a { color: #4fb2e0; text-decoration: none; }
+  .breadcrumb a:hover { text-decoration: underline; }
+  h1 { font-size: 18px; margin-bottom: 4px; }
+  p.sub { color: #9198a6; font-size: 13px; margin-top: 0; }
+  input#search {
+    width: 100%; max-width: 360px; margin-top: 14px;
+    background: #23262e; border: 1px solid #383c46; color: #e6e8ec;
+    padding: 8px 10px; border-radius: 6px; font-size: 13px;
+  }
+  input#search:focus { outline: none; border-color: #4fb2e0; }
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+  th, td { text-align: left; padding: 10px; border-bottom: 1px solid #383c46; font-size: 13px; }
+  th { color: #9198a6; text-transform: uppercase; font-size: 11px; letter-spacing: 0.05em; }
+  tr.row:hover { background: #23262e; cursor: pointer; }
+  a.open-link { color: #4fb2e0; text-decoration: none; font-weight: 600; }
+  a.open-link:hover { text-decoration: underline; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+  .badge.day0 { background: #4fb2e033; color: #4fb2e0; }
+  .badge.later { background: #38424b; color: #9198a6; }
+  .count { color: #9198a6; font-size: 12px; margin-top: 8px; }
+</style>
+</head>
+<body>
+  <div class="breadcrumb"><a href="/">All Patients</a> / {{ patient }}</div>
+  <h1>{{ patient }} — Timepoints</h1>
+  <p class="sub">{{ timepoints|length }} timepoints found. Click one to see its scans (A/B/C/D...).</p>
+
+  <input type="text" id="search" placeholder="Filter by timepoint..." />
+  <div class="count" id="count"></div>
+
+  <table id="tp-table">
+    <thead>
+      <tr><th>Timepoint</th><th>Type</th><th>Scans</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for t in timepoints %}
+      <tr class="row" data-search="{{ t.timepoint }}" onclick="window.location='/patient/{{ patient }}/{{ t.timepoint }}'">
+        <td>{{ t.timepoint }}</td>
+        <td><span class="badge {{ 'day0' if t.is_day0 else 'later' }}">{{ 'Day-0' if t.is_day0 else 'later visit' }}</span></td>
+        <td>{{ t.scan_count }}</td>
+        <td><a class="open-link" href="/patient/{{ patient }}/{{ t.timepoint }}">Open →</a></td>
+      </tr>
+      {% endfor %}
+      {% if not timepoints %}
+      <tr><td colspan="4" style="color:#9198a6;">No timepoints found for this patient.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+
+  <script>
+    const searchBox = document.getElementById("search");
+    const rows = Array.from(document.querySelectorAll("#tp-table tbody tr[data-search]"));
+    const countEl = document.getElementById("count");
+
+    function updateCount() {
+      const visible = rows.filter(r => r.style.display !== "none").length;
+      countEl.textContent = `Showing ${visible} of ${rows.length} timepoints`;
+    }
+    searchBox.addEventListener("input", () => {
+      const q = searchBox.value.trim().toLowerCase();
+      rows.forEach(r => {
+        r.style.display = r.getAttribute("data-search").toLowerCase().includes(q) ? "" : "none";
+      });
+      updateCount();
+    });
+    updateCount();
+  </script>
+</body>
+</html>

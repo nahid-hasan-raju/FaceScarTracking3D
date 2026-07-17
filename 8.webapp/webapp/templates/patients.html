@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Patients — Polygon Editor</title>
+<style>
+  body { font-family: -apple-system, sans-serif; background: #1b1e24; color: #e6e8ec; margin: 0; padding: 24px; }
+  h1 { font-size: 18px; margin-bottom: 4px; }
+  p.sub { color: #9198a6; font-size: 13px; margin-top: 0; }
+
+  .picker-row { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
+  select#patient-select {
+    background: #23262e; border: 1px solid #383c46; color: #e6e8ec;
+    padding: 8px 12px; border-radius: 6px; font-size: 14px; min-width: 220px;
+  }
+  select#patient-select:focus { outline: none; border-color: #4fb2e0; }
+  .stats { color: #9198a6; font-size: 12px; }
+
+  .group-title {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: #9198a6; margin: 22px 0 10px; display: flex; align-items: center; gap: 8px;
+  }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+  .badge.day0 { background: #4fb2e033; color: #4fb2e0; }
+  .badge.later { background: #38424b; color: #9198a6; }
+  .badge.yes { background: #4fd18b33; color: #4fd18b; }
+  .badge.no { background: #38424b; color: #9198a6; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 14px;
+  }
+  .card {
+    background: #23262e; border: 1px solid #383c46; border-radius: 8px;
+    overflow: hidden; cursor: pointer; transition: border-color 0.15s;
+  }
+  .card:hover { border-color: #4fb2e0; }
+  .card img {
+    width: 100%; height: 120px; object-fit: cover; display: block; background: #14161a;
+  }
+  .card .label { padding: 8px 10px; font-size: 12px; }
+  .card .scan-id { font-weight: 600; margin-bottom: 4px; word-break: break-all; }
+
+  .empty-note { color: #9198a6; font-size: 13px; margin-top: 20px; }
+</style>
+</head>
+<body>
+  <h1>Patients</h1>
+  <p class="sub">{{ patients|length }} patients found. Pick one to see all of their scans.</p>
+
+  <div class="picker-row">
+    <select id="patient-select">
+      <option value="">Select a patient...</option>
+      {% for p in patients %}
+      <option value="{{ p.patient }}">{{ p.patient }} ({{ p.scan_count }} scans, {{ p.day0_count }} Day-0)</option>
+      {% endfor %}
+    </select>
+    <span class="stats" id="stats"></span>
+  </div>
+
+  <div id="grid-container"></div>
+
+  <script>
+    const select = document.getElementById("patient-select");
+    const container = document.getElementById("grid-container");
+    const stats = document.getElementById("stats");
+
+    function cardHtml(s) {
+      const typeBadge = s.is_day0
+        ? '<span class="badge day0">Day-0</span>'
+        : '<span class="badge later">later visit</span>';
+      const polyBadge = s.has_polygons
+        ? '<span class="badge yes">saved</span>'
+        : '<span class="badge no">none yet</span>';
+      return `
+        <div class="card" onclick="window.location='/edit/${s.scan_id}'">
+          <img src="/api/thumbnail/${s.scan_id}" loading="lazy" alt="${s.scan_id}" />
+          <div class="label">
+            <div class="scan-id">${s.scan_id}</div>
+            ${typeBadge} ${polyBadge}
+          </div>
+        </div>`;
+    }
+
+    async function loadPatient(patient) {
+      if (!patient) {
+        container.innerHTML = "";
+        stats.textContent = "";
+        return;
+      }
+      container.innerHTML = '<p class="empty-note">Loading scans...</p>';
+      const res = await fetch(`/api/patient/${patient}/scans`);
+      const scans = await res.json();
+
+      if (!scans.length) {
+        container.innerHTML = '<p class="empty-note">No scans found for this patient.</p>';
+        stats.textContent = "";
+        return;
+      }
+
+      // group by timepoint, Day-0 group(s) first (already sorted server-side)
+      const groups = [];
+      const seen = new Map();
+      for (const s of scans) {
+        if (!seen.has(s.timepoint)) {
+          seen.set(s.timepoint, { timepoint: s.timepoint, is_day0: s.is_day0, items: [] });
+          groups.push(seen.get(s.timepoint));
+        }
+        seen.get(s.timepoint).items.push(s);
+      }
+
+      let html = "";
+      for (const g of groups) {
+        const badge = g.is_day0
+          ? '<span class="badge day0">Day-0</span>'
+          : '<span class="badge later">later visit</span>';
+        html += `<div class="group-title">${g.timepoint} ${badge}</div>`;
+        html += `<div class="grid">${g.items.map(cardHtml).join("")}</div>`;
+      }
+      container.innerHTML = html;
+      stats.textContent = `${scans.length} scans across ${groups.length} timepoint(s)`;
+    }
+
+    select.addEventListener("change", () => {
+      const patient = select.value;
+      const url = new URL(window.location);
+      if (patient) url.searchParams.set("patient", patient);
+      else url.searchParams.delete("patient");
+      window.history.replaceState({}, "", url);
+      loadPatient(patient);
+    });
+
+    // pre-select from ?patient= (e.g. coming back from the editor)
+    const preselect = new URLSearchParams(window.location.search).get("patient");
+    if (preselect) {
+      select.value = preselect;
+      loadPatient(preselect);
+    }
+  </script>
+</body>
+</html>

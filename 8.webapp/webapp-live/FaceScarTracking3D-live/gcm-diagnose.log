@@ -1,0 +1,190 @@
+﻿Diagnose log at 2026-07-09T14:41:32Z
+
+AppPath: C:\Program Files\Git\mingw64\bin\git-credential-manager.exe
+InstallDir: C:\Program Files\Git\mingw64\bin\
+Version: 2.7.3+5fa7116896c82164996a609accd1c5ad90fe730a
+
+------------
+Diagnostic: Environment
+Skipped: False
+Success: True
+Exception: None
+Log:
+OSType: Windows
+OSVersion: 10.0 (build 26200)
+Reading environment variables... OK
+ Variables:
+SESSIONNAME=Console
+ProgramFiles(x86)=C:\Program Files (x86)
+MSYSTEM=MINGW64
+ProgramW6432=C:\Program Files
+PROCESSOR_IDENTIFIER=Intel64 Family 6 Model 183 Stepping 1, GenuineIntel
+EFC_8460_1262719628=1
+ANSYSLIC_DIR=C:\Program Files\ANSYS Inc\Shared Files\Licensing
+TMP=C:\Users\MDHasan\AppData\Local\Temp
+PROCESSOR_ARCHITECTURE=AMD64
+Path=C:/Program Files/Git/mingw64/libexec/git-core;C:\Program Files\Git\mingw64\bin;C:\Program Files\Git\usr\bin;C:\Users\MDHasan\bin;C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\Windows\System32\OpenSSH\;C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common;C:\Program Files\NVIDIA Corporation\NVIDIA NvDLISR;C:\WINDOWS\system32;C:\WINDOWS;C:\WINDOWS\System32\Wbem;C:\WINDOWS\System32\WindowsPowerShell\v1.0\;C:\WINDOWS\System32\OpenSSH\;C:\Program Files\dotnet\;C:\Software\Process Lasso\;C:\Program Files\nodejs\;C:\Program Files\Git\cmd;C:\Users\MDHasan\AppData\Local\Microsoft\WindowsApps;C:\Users\MDHasan\AppData\Local\Programs\Microsoft VS Code\bin;C:\Users\MDHasan\AppData\Local\Python\bin;C:\Program Files\Git\cmd\;
+EFC_8460_1592913036=1
+P_SCHEMA=C:\Program Files\ANSYS Inc\v241\AISOL\CADIntegration\Parasolid\PSchema
+ANSA_SRV=Legion2-Inno
+EFC_8460_4126798990=1
+PROCESSOR_REVISION=b701
+TEMP=C:\Users\MDHasan\AppData\Local\Temp
+FPS_BROWSER_APP_PROFILE_STRING=Internet Explorer
+FPS_BROWSER_USER_PROFILE_STRING=Default
+LOGONSERVER=\\LEGION2-INNO
+EFC_8460_3789132940=1
+USERNAME=MDHasan
+SystemRoot=C:\WINDOWS
+ANSYS241_DIR=C:\Program Files\ANSYS Inc\v241\ANSYS
+EFC_8460_2283032206=1
+GIT_EXEC_PATH=C:/Program Files/Git/mingw64/libexec/git-core
+PLINK_PROTOCOL=ssh
+OneDrive=C:\Users\MDHasan\OneDrive
+EFC_8460_344590478=1
+CommonProgramFiles=C:\Program Files\Common Files
+SystemDrive=C:
+PROCESSOR_LEVEL=6
+ProgramData=C:\ProgramData
+LC_CTYPE=C.UTF-8
+HOMEPATH=\Users\MDHasan
+IGCCSVC_DB=AQAAANCMnd8BFdERjHoAwE/Cl+sBAAAAnSvqUWGPLUqMipd+gvjC2QQAAAACAAAAAAAQZgAAAAEAACAAAADfLzEnqvM1h3nqrJka0JI1vQXLjB1iaYpQVwKvdu73fgAAAAAOgAAAAAIAACAAAACyUdjB4rj5yniORLQfdZW5S6WHfej/GRWgbNkQ/tRARGAAAADWwexsuWsSiwAi5mpawD9nXrLzvnzNprNPYDCPHU5aPQwafSvcI8X1cSppZCIJ13euJXp50opLU08P6R/F2HrQ6sga3Wo0V1cgygNaNoeSDxGowGU66CCbw+R72EWylM9AAAAAlJDinbYSvaix3XOp+dWZSmrfQ06/WLv8MOzjtbS4vJdrCJfjksVMe7XNBT0n30k815+xVMMS4tWuv8H0s7oOAA==
+ALLUSERSPROFILE=C:\ProgramData
+CommonProgramW6432=C:\Program Files\Common Files
+TERM=xterm-256color
+LSTC_LICENSE=Ansys
+DriverData=C:\Windows\System32\Drivers\DriverData
+HOMEDRIVE=C:
+windir=C:\WINDOWS
+GIT_TRACE2_PARENT_SID=4380f97d-5033-4e7f-a756-7bf405f9ac85
+CADOE_LIBDIR241=C:\Program Files\ANSYS Inc\v241\CommonFiles\Language\en-us
+NUMBER_OF_PROCESSORS=16
+OS=Windows_NT
+ZES_ENABLE_SYSMAN=1
+EFC_8460_2775293581=1
+ProgramFiles=C:\Program Files
+ComSpec=C:\WINDOWS\system32\cmd.exe
+USERDOMAIN_ROAMINGPROFILE=AzureAD
+PATHEXT=.COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC
+HOME=C:\Users\MDHasan
+PSModulePath=C:\Program Files\WindowsPowerShell\Modules;C:\WINDOWS\system32\WindowsPowerShell\v1.0\Modules
+USERPROFILE=C:\Users\MDHasan
+PROMPT=$P$G
+TMPDIR=C:\Users\MDHasan\AppData\Local\Temp
+APPDATA=C:\Users\MDHasan\AppData\Roaming
+USERDOMAIN=AzureAD
+COMPUTERNAME=LEGION2-INNO
+AWP_ROOT241=C:\Program Files\ANSYS Inc\v241
+LOCALAPPDATA=C:\Users\MDHasan\AppData\Local
+CommonProgramFiles(x86)=C:\Program Files (x86)\Common Files
+COLORTERM=truecolor
+PUBLIC=C:\Users\Public
+
+
+------------
+Diagnostic: File system
+Skipped: False
+Success: True
+Exception: None
+Log:
+Temporary directory is 'C:\Users\MDHasan\AppData\Local\Temp\'...
+Checking basic file I/O...
+Writing to temporary file 'C:\Users\MDHasan\AppData\Local\Temp\f5fd42b5864008fcc4ad5d88'... OK
+Reading from temporary file 'C:\Users\MDHasan\AppData\Local\Temp\f5fd42b5864008fcc4ad5d88'... OK
+Deleting temporary file 'C:\Users\MDHasan\AppData\Local\Temp\f5fd42b5864008fcc4ad5d88'... OK
+Testing IFileSystem instance...
+UserHomePath: C:\Users\MDHasan
+UserDataDirectoryPath: C:\Users\MDHasan\.gcm
+GetCurrentDirectory(): D:\NahidW\Coding\6.burn_area_editor\webapp-live\FaceScarTracking3D-live
+
+------------
+Diagnostic: Networking
+Skipped: False
+Success: True
+Exception: None
+Log:
+Checking networking and HTTP stack...
+Creating HTTP client... OK
+IsNetworkAvailable: True
+Sending HEAD request to http://example.com...Sending HEAD request to https://example.com... OK
+ OK
+Acquiring free TCP port... OK
+Testing local HTTP loopback connections...
+Creating new HTTP listener for http://localhost:54413/... OK
+Waiting for loopback connection... OK
+Writing response... OK
+Waiting for response data... OK
+Loopback connection data OK
+
+------------
+Diagnostic: Git
+Skipped: False
+Success: True
+Exception: None
+Log:
+Getting Git version... OK
+Git version is '2.54.0.windows.1'
+Locating current repository...Git repository at 'D:/NahidW/Coding/6.burn_area_editor/webapp-live/FaceScarTracking3D-live/.git'
+ OK
+Listing all Git configuration... OK
+Git configuration:
+file:C:/Program Files/Git/etc/gitconfig	diff.astextplain.textconv=astextplain
+file:C:/Program Files/Git/etc/gitconfig	filter.lfs.clean=git-lfs clean -- %f
+file:C:/Program Files/Git/etc/gitconfig	filter.lfs.smudge=git-lfs smudge -- %f
+file:C:/Program Files/Git/etc/gitconfig	filter.lfs.process=git-lfs filter-process
+file:C:/Program Files/Git/etc/gitconfig	filter.lfs.required=true
+file:C:/Program Files/Git/etc/gitconfig	http.sslbackend=schannel
+file:C:/Program Files/Git/etc/gitconfig	core.autocrlf=true
+file:C:/Program Files/Git/etc/gitconfig	core.fscache=true
+file:C:/Program Files/Git/etc/gitconfig	core.symlinks=false
+file:C:/Program Files/Git/etc/gitconfig	pull.rebase=false
+file:C:/Program Files/Git/etc/gitconfig	credential.helper=manager
+file:C:/Program Files/Git/etc/gitconfig	credential.https://dev.azure.com.usehttppath=true
+file:C:/Program Files/Git/etc/gitconfig	init.defaultbranch=master
+file:.git/config	core.repositoryformatversion=0
+file:.git/config	core.filemode=false
+file:.git/config	core.bare=false
+file:.git/config	core.logallrefupdates=true
+file:.git/config	core.symlinks=false
+file:.git/config	core.ignorecase=true
+file:.git/config	remote.origin.url=https://github.com/nahid-hasan-raju/FaceScarTracking3D-live.git
+file:.git/config	remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*
+file:.git/config	branch.main.remote=origin
+file:.git/config	branch.main.merge=refs/heads/main
+
+
+------------
+Diagnostic: Credential storage
+Skipped: False
+Success: True
+Exception: None
+Log:
+ICredentialStore instance is of type: CredentialStore
+Writing test credential... OK
+Reading test credential... OK
+Deleting test credential... OK
+
+------------
+Diagnostic: Microsoft authentication (AAD/MSA)
+Skipped: False
+Success: True
+Exception: None
+Log:
+Broker is not enabled.
+Flow type is: Auto
+Gathering MSAL token cache data... OK
+CacheDirectory: C:\Users\MDHasan\AppData\Local\.IdentityService
+CacheFileName: msal.cache
+CacheFilePath: C:\Users\MDHasan\AppData\Local\.IdentityService\msal.cache
+Creating cache helper... OK
+Verifying MSAL token cache persistence... OK
+
+------------
+Diagnostic: GitHub API
+Skipped: False
+Success: True
+Exception: None
+Log:
+Using 'https://github.com/' as API target.
+Querying '/meta' endpoint... OK
+

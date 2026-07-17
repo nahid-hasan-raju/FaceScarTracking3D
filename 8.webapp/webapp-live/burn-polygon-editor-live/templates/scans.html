@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>{{ patient }} / {{ timepoint }} — Scans</title>
+<style>
+  body { font-family: -apple-system, sans-serif; background: #1b1e24; color: #e6e8ec; margin: 0; padding: 24px; }
+  .breadcrumb { font-size: 13px; color: #9198a6; margin-bottom: 10px; }
+  .breadcrumb a { color: #4fb2e0; text-decoration: none; }
+  .breadcrumb a:hover { text-decoration: underline; }
+  h1 { font-size: 18px; margin-bottom: 4px; }
+  p.sub { color: #9198a6; font-size: 13px; margin-top: 0; }
+  input#search {
+    width: 100%; max-width: 360px; margin-top: 14px;
+    background: #23262e; border: 1px solid #383c46; color: #e6e8ec;
+    padding: 8px 10px; border-radius: 6px; font-size: 13px;
+  }
+  input#search:focus { outline: none; border-color: #4fb2e0; }
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+  th, td { text-align: left; padding: 10px; border-bottom: 1px solid #383c46; font-size: 13px; }
+  th { color: #9198a6; text-transform: uppercase; font-size: 11px; letter-spacing: 0.05em; }
+  tr.row:hover { background: #23262e; cursor: pointer; }
+  a.open-link { color: #4fb2e0; text-decoration: none; font-weight: 600; }
+  a.open-link:hover { text-decoration: underline; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+  .badge.yes { background: #4fd18b33; color: #4fd18b; }
+  .badge.no { background: #38424b; color: #9198a6; }
+  .count { color: #9198a6; font-size: 12px; margin-top: 8px; }
+</style>
+</head>
+<body>
+  <div class="breadcrumb"><a href="/">All Patients</a> / <a href="/patient/{{ patient }}">{{ patient }}</a> / {{ timepoint }}</div>
+  <h1>{{ patient }} / {{ timepoint }} — Scans</h1>
+  <p class="sub">{{ scans|length }} scans found. Click one to open the polygon editor.</p>
+
+  <input type="text" id="search" placeholder="Filter by scan ID..." />
+  <div class="count" id="count"></div>
+
+  <table id="scan-table">
+    <thead>
+      <tr><th>Scan</th><th>Polygons</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for s in scans %}
+      <tr class="row" data-search="{{ s.scan_id }}" onclick="window.location='/edit/{{ s.scan_id }}'">
+        <td>{{ s.scan_id }}</td>
+        <td><span class="badge {{ 'yes' if s.has_polygons else 'no' }}">{{ 'saved' if s.has_polygons else 'none yet' }}</span></td>
+        <td><a class="open-link" href="/edit/{{ s.scan_id }}">Open editor →</a></td>
+      </tr>
+      {% endfor %}
+      {% if not scans %}
+      <tr><td colspan="3" style="color:#9198a6;">No scans found for this timepoint.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+
+  <script>
+    const searchBox = document.getElementById("search");
+    const rows = Array.from(document.querySelectorAll("#scan-table tbody tr[data-search]"));
+    const countEl = document.getElementById("count");
+
+    function updateCount() {
+      const visible = rows.filter(r => r.style.display !== "none").length;
+      countEl.textContent = `Showing ${visible} of ${rows.length} scans`;
+    }
+    searchBox.addEventListener("input", () => {
+      const q = searchBox.value.trim().toLowerCase();
+      rows.forEach(r => {
+        r.style.display = r.getAttribute("data-search").toLowerCase().includes(q) ? "" : "none";
+      });
+      updateCount();
+    });
+    updateCount();
+  </script>
+</body>
+</html>

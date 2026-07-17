@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "facescartrack3d",
+  "private_key_id": "cf59a630590bdb31788ad29aa62fff5863d70c87",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCqFn1TRD3uTUMg\nf7QVHXYTB+tH+1rDKmbThBme8NbN6Zku5wjCKiewgjncY9lrAddr6YAX8cvJRIKg\nFq+73zRmteCnC8UGASiKjx2oGLiRkk3DnHK6b8EKEz4Cfg/dWHghtZjrz4fekgGX\nE+o8TICbFT5F+gUmE+Zec+LZ29hNPc0Irnm9GPlo0NOHyw31KjcvNGdW8QKqOQai\niOLxqsXGCdkbtOsNrvEjiEUcCvI8EJUAv+TgjnM6JlQ8SOd5nBGkyc05AdASV7lL\nudeDRmnvRSH6b2J/kertfZy0KFLMQtL6wrh5lqUwn4Zux1yU/R2EXFTF9jojI52x\nNscoVKAJAgMBAAECggEAB5gFdGhBk5gjfRn2glLUaLkbyhTw0nHcMWlec3gxPvRF\nAJEUFQcoynql9q8Gj/5/DbRZIbiL7qp+YoNgyTSH9GX+Z7bgzwnSM418N3sTEnzD\nuA4OGUDQD5EYXagfMTS3+FlRQIX9fPRr2cDr3lFUFJh4NUuaWz7cNC9cW3mzSI99\nJbPT9TUmtW7QJI9eNWWa11s9oCyLtmN+k0ArxQWMobrXOzhNyO7/Ap95KTMejXRq\nJ9kGLAEJw04dBvNarYV7zID+Cl9slOGwJVYsyZkkl2moHxjlw5wUZ44oMSev71+i\nufAIYrbUTi9gEjAL0wfvDsnqBb5gVTTIbfB8Sg4XmQKBgQDboWsbzjfokHjVlfaH\neiFYBjgWTeiO2krZahsNzCnz1f0uGS9940T18clrvwOCGkMfBrr1JpcG+hWGX2gB\n7qK5Ah7Gzd2CK8U5vnFrNTPyBrXKK3pYQROx1ZFTCtr5fQkd9Pt7ceqjmOmuEtQ6\nv60YeueuJaAUwam4y4zbsRw3RwKBgQDGQNtIJQbekurW+nJ3txHzMvPU2T9oLn2U\nC5Fwmhn130waSy4FpHvVmzfH+zBn24zAUkhNmjBQDEgR1ou2ZVar7aqgok7qqJrO\nusAZu54Wkb8ncnogbC1hMkvZu4LMWvyhHKJ2tX+ldn3UBdkPBA3eTXBhXO7mP5tZ\nBcfSZVa2LwKBgHrJSJc39/u14UgPWc8t0Txj5bFahvxuP9BCyLMzA/VFGhFOlUV8\n7I3PSftJw81Vn1bWLWlm1KJa5/PCnOQPpLtn2wrsBr2CePWqacA080CIzdMj8Xcr\nkrYmHuPdOsSmSZWM45eE/VfO4j2mWy4pAL2h4Kp0cIWKK7ebXLlpz8t7AoGAfIR7\ntaJb4CuSiBehEYPQKFmWP9d7NaoNgZCKdpizOXRYTiNt8mlOxejJbjdcPb7tdlW3\nx9XSBlTQZzPDaHnZp/6MLnwC6Oug37r3sLHgJvi/gL0r63VGQ0fd0BEvo7558Y8U\nk06Hr5ruiN5raDz5oOgub1h5S/AjWBSDXqf7gE0CgYBa9Hug17oo1cRVS2w8lPJU\nOejJI4RGrULMdbG/VeEgX/5Ujan9MdpiQiNQBVLhrM26BnmuJz2lfjveEqUjK2v1\nQKwDhRDH7m3N/0lb2Pt+Iu8X/qzqQw87YsrMjHeWDQenUuaSbiyIhCShveRtBCDT\naYqbztYZ2fx06XdyiIzH8A==\n-----END PRIVATE KEY-----\n",
+  "client_email": "face-scar-track-3d@facescartrack3d.iam.gserviceaccount.com",
+  "client_id": "113542136670575247530",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/face-scar-track-3d%40facescartrack3d.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
