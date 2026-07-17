@@ -1,0 +1,663 @@
+#!/usr/bin/env python3
+"""
+burn_3d_pipeline.py
+===================
+Full pipeline: Unwrapped 2D TIFF  →  Burn Segmentation  →  3D Point Cloud
+
+Dataset folder structure expected:
+  <dataset>/
+    PAT01/
+      D00/
+        PAT01_D00_A/
+          PAT01_D00_A.tif        ← texture scan
+          PAT01_D00_A            ← Cyberware range file (no extension)
+        PAT01_D00_B/
+          ...
+      D14/
+        ...
+    PAT02/
+      ...
+
+Outputs saved IN-PLACE inside each scan subfolder:
+  PAT01_D00_A_seg.tif            ← segmented texture (burn region coloured)
+  PAT01_D00_A_burn3d.ply         ← 3-D point cloud with burn colours
+  PAT01_D00_A_burn_polygons.json ← burn region polygons (always)
+  PAT01_D00_A_burn_mask.png      ← binary mask (--save-mask only)
+
+USAGE:
+  # Batch — all patients (config.yaml auto-loaded from this script's folder):
+  python step1_burn_segmented_into_3d_pipeline.py --dataset D:/NahidW/Dataset/face_burn_dataset
+
+  # Batch — one patient:
+  python step1_burn_segmented_into_3d_pipeline.py --dataset D:/NahidW/Dataset/face_burn_dataset --patient PAT01
+
+  # Batch — one patient, one timepoint:
+  python step1_burn_segmented_into_3d_pipeline.py --dataset D:/NahidW/Dataset/face_burn_dataset --patient PAT01 --timepoint D00
+
+  # Single scan subfolder:
+  python step1_burn_segmented_into_3d_pipeline.py --scandir D:/.../PAT01/D00/PAT01_D00_A
+
+  # Still works if you want a different config file explicitly:
+  python step1_burn_segmented_into_3d_pipeline.py --config other_config.yaml --dataset D:/... --patient PAT01
+
+REQUIREMENTS:
+  pip install numpy pillow open3d opencv-python pyyaml imagecodecs tifffile
+  + model-specific: see README.md
+"""
+
+import sys
+import re
+import json
+import argparse
+import numpy as np
+import cv2
+import open3d as o3d
+from pathlib import Path
+from PIL import Image
+import tifffile
+  
+sys.path.insert(0, str(Path(__file__).parent))
+
+from utils.cyberware import range_to_3d
+from utils.alignment  import build_pcd, align_front
+from utils.writers    import write_ply, render_snapshot
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  CONSTANTS
+# ─────────────────────────────────────────────────────────────────────────────
+
+BURN_TINT      = np.array([255, 30,  30],  dtype=np.float32)   # vivid red tint
+BOUNDARY_COLOR = np.array([255, 255,  0],  dtype=np.uint8)     # yellow boundary
+BLEND_ALPHA    = 0.55                                            # 55% tint + 45% skin
+BOUNDARY_WIDTH = 1                                               # px — wide enough on high-res TIF
+
+# Matches scan subfolder names like  PAT01_D00_A  or  PAT03_M06_B2
+SCAN_RE = re.compile(
+    r"^(?P<patient>PAT\d+)_(?P<timepoint>[DM]\d+)_(?P<variant>[A-Z][A-Z0-9]?)$",
+    re.IGNORECASE
+)
+
+# Sort timepoints D00 < D14 < D28 < M01 … M24
+def _tp_key(name):
+    m = re.match(r'([DM])(\d+)', name)
+    if not m:
+        return (99, 0)
+    return (0 if m.group(1).upper() == 'D' else 1, int(m.group(2)))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  STEP 1 — LOAD TIFF
+# ─────────────────────────────────────────────────────────────────────────────
+
+def load_tiff(tif_path: Path) -> np.ndarray:
+    """Load .tif as uint8 RGB array, normalising whatever bit-depth it has."""
+    raw = tifffile.imread(str(tif_path))
+
+    # Multi-page: take first page
+    if raw.ndim == 3 and raw.shape[0] < 10:
+        raw = raw[0]
+
+    # Normalise to 0-255
+    raw = raw.astype(np.float32)
+    lo, hi = raw.min(), raw.max()
+    if hi > lo:
+        raw = (raw - lo) / (hi - lo) * 255.0
+    raw = raw.astype(np.uint8)
+
+    # Ensure RGB (H, W, 3)
+    if raw.ndim == 2:
+        raw = np.stack([raw, raw, raw], axis=-1)
+    elif raw.shape[-1] == 4:
+        raw = raw[..., :3]
+
+    print(f"  [TIF] {tif_path.name}  shape={raw.shape}  dtype={raw.dtype}")
+    return raw
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  STEP 2 — SEGMENTATION
+# ─────────────────────────────────────────────────────────────────────────────
+
+def run_segmentation(img_rgb: np.ndarray, args):
+    """
+    Returns (mask, prob_map):
+      mask     — uint8 binary mask (0/255), same as before
+      prob_map — float32 array, per-pixel probability in [0, 1], same H×W as mask
+    """
+    model_name = args.model.lower()
+    print(f"\n  [SEG] Model: {model_name.upper()}  threshold={args.threshold}")
+
+    if model_name == "unetpp":
+        from utils.models.unetpp import load_model, predict
+        model = load_model(args.ckpt)
+        mask, prob_map = predict(model, img_rgb, threshold=args.threshold)
+
+    elif model_name == "segformer":
+        from utils.models.segformer import load_model, predict
+        model, processor = load_model(args.ckpt)
+        mask, prob_map = predict(model, processor, img_rgb, threshold=args.threshold)
+
+    elif model_name == "medsam":
+        if not args.base_ckpt:
+            raise ValueError("--base-ckpt required for MedSAM")
+        from utils.models.medsam import load_model, predict
+        model, predictor = load_model(args.base_ckpt, args.ckpt)
+        mask, prob_map = predict(model, predictor, img_rgb, threshold=args.threshold)
+
+    elif model_name == "sam2":
+        if not args.base_ckpt:
+            raise ValueError("--base-ckpt required for SAM2")
+        if not args.sam2_repo:
+            raise ValueError("--sam2-repo required for SAM2")
+        from utils.models.sam2 import load_model, predict
+        model, predictor = load_model(args.base_ckpt, args.ckpt, args.sam2_repo)
+        mask, prob_map = predict(model, predictor, img_rgb, threshold=args.threshold)
+
+    else:
+        raise ValueError(f"Unknown model: {model_name}")
+
+    burn_px = int((mask > 128).sum())
+    pct     = 100.0 * burn_px / mask.size
+    print(f"  [SEG] Burn pixels: {burn_px:,} / {mask.size:,}  ({pct:.1f}%)")
+    return mask, prob_map
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  STEP 3 — APPLY BURN COLOURS + POLYGONS
+# ─────────────────────────────────────────────────────────────────────────────
+
+def get_burn_polygons(mask: np.ndarray):
+    contours, _ = cv2.findContours(
+        (mask > 128).astype(np.uint8),
+        cv2.RETR_EXTERNAL,
+        cv2.CHAIN_APPROX_SIMPLE
+    )
+    return [c for c in contours if cv2.contourArea(c) > 50]
+
+
+def apply_burn_colors(img_rgb: np.ndarray, mask: np.ndarray):
+    """
+    Burn region  → skin colour blended with vivid red tint (texture still visible)
+    Burn boundary → bright yellow outline drawn LAST so it is never overwritten
+    Normal skin  → unchanged
+    Returns (coloured_img uint8 RGB, contours)
+    """
+    # Step A: blend burn region — original skin fades toward red
+    colored = img_rgb.copy().astype(np.float32)
+    burn_px = mask > 128
+    colored[burn_px] = (
+        colored[burn_px] * (1.0 - BLEND_ALPHA) +
+        BURN_TINT         * BLEND_ALPHA
+    )
+    colored = colored.clip(0, 255).astype(np.uint8)
+
+    # Step B: find contours on the raw binary mask
+    contours = get_burn_polygons(mask)
+
+    # Step C: draw boundary AFTER the blend is locked in
+    # The array stays in RGB order throughout — pass (R, G, B) directly
+    boundary_rgb = (int(BOUNDARY_COLOR[0]), int(BOUNDARY_COLOR[1]), int(BOUNDARY_COLOR[2]))
+    cv2.drawContours(colored, contours, -1, boundary_rgb, BOUNDARY_WIDTH)
+
+    return colored, contours
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  POLYGON -> 3D PROJECTION  (same grid math as step2_detect_landmarks.py --
+#  maps each 2D contour pixel to its 3D position, then applies the SAME
+#  alignment.json transform used for the point cloud, so burn boundaries are
+#  directly comparable across timepoints, not just the point cloud)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _parse_range_header(range_path):
+    with open(range_path, "rb") as f:
+        raw = f.read()
+    idx = raw.find(b"DATA=\n")
+    header_end = idx + len(b"DATA=\n")
+    params = {}
+    for line in raw[:header_end].decode("ascii", errors="replace").split("\n"):
+        if "=" in line and not line.startswith("DATA"):
+            k, v = line.split("=", 1)
+            params[k.strip()] = v.strip()
+    return params, header_end, raw
+
+
+def load_range_grid_for_polygons(range_path):
+    """Same grid parsing as step2_detect_landmarks.py -- returns radius_mm,
+    valid_mask, NLG, NLT, theta_step, z_scale_mm."""
+    SCANNER_HEIGHT_MM = 18 * 25.4
+    SCANNER_RADIUS_MM = 9 * 25.4
+    INVALID_SENTINEL = 0x8000
+    params, header_end, raw = _parse_range_header(range_path)
+    NLG, NLT = int(params["NLG"]), int(params["NLT"])
+    RSHIFT, LGINCR = int(params["RSHIFT"]), int(params["LGINCR"])
+    r_scale_mm = LGINCR / 32768.0
+    z_scale_mm = SCANNER_HEIGHT_MM / NLT
+    theta_step = (2.0 * np.pi) / NLG
+    data = (np.frombuffer(raw[header_end:header_end + NLG * NLT * 2], dtype=">u2")
+              .reshape(NLG, NLT).astype(np.float32))
+    valid_mask = (data != INVALID_SENTINEL) & (data > 0)
+    radius_mm = np.where(valid_mask, (data / (2 ** RSHIFT)) * r_scale_mm, np.nan)
+    valid_mask = (~np.isnan(radius_mm) & (radius_mm > 0) & (radius_mm <= SCANNER_RADIUS_MM))
+    return radius_mm, valid_mask, NLG, NLT, theta_step, z_scale_mm
+
+
+def _pixel_to_grid_index(px, py, cw, ch, NLG, NLT):
+    col = (ch - 1 - py) * NLT / ch
+    row = px * NLG / cw
+    return int(round(row)) % NLG, max(0, min(NLT - 1, int(round(col))))
+
+
+def _nearest_valid(radius_mm, valid_mask, row, col, NLG, NLT, max_radius=6):
+    if valid_mask[row, col]:
+        return row, col, float(radius_mm[row, col])
+    for rad in range(1, max_radius + 1):
+        for dr in range(-rad, rad + 1):
+            for dc in range(-rad, rad + 1):
+                rr, cc = (row + dr) % NLG, col + dc
+                if 0 <= cc < NLT and valid_mask[rr, cc]:
+                    return rr, cc, float(radius_mm[rr, cc])
+    return None
+
+
+def _grid_to_xyz(row, col, radius, theta_step, z_scale_mm):
+    theta = row * theta_step
+    z = col * z_scale_mm
+    return [float(radius * np.cos(theta)), float(radius * np.sin(theta)), float(z)]
+
+
+def project_polygon_to_3d(contour, cw, ch, radius_mm, valid_mask, NLG, NLT,
+                           theta_step, z_scale_mm, R=None, t=None):
+    """Maps each 2D contour vertex to 3D (None where the scanner had no valid
+    depth nearby), then applies the alignment transform if provided."""
+    pts = contour.squeeze()
+    if pts.ndim == 1:
+        pts = pts.reshape(1, -1)
+    out = []
+    for px, py in pts:
+        row, col = _pixel_to_grid_index(int(px), int(py), cw, ch, NLG, NLT)
+        found = _nearest_valid(radius_mm, valid_mask, row, col, NLG, NLT)
+        if found is None:
+            out.append(None)
+            continue
+        rr, cc, radius = found
+        xyz = _grid_to_xyz(rr, cc, radius, theta_step, z_scale_mm)
+        if R is not None:
+            xyz = (np.array(R) @ np.array(xyz) + np.array(t)).tolist()
+        out.append(xyz)
+    return out
+
+
+def polygons_to_json(contours, scan_name: str, tif_shape: tuple, prob_map: np.ndarray,
+                      patient_id: str = None, timepoint: str = None,
+                      model_name: str = None, threshold: float = None) -> dict:
+    regions = []
+    for i, cnt in enumerate(contours):
+        pts = cnt.squeeze()
+
+        # Per-region confidence: mean/min/max of the probability map inside this contour
+        region_mask = np.zeros(prob_map.shape, dtype=np.uint8)
+        cv2.drawContours(region_mask, [cnt], -1, 1, thickness=cv2.FILLED)
+        region_probs = prob_map[region_mask.astype(bool)]
+        if region_probs.size > 0:
+            confidence_mean = float(region_probs.mean())
+            confidence_min  = float(region_probs.min())
+            confidence_max  = float(region_probs.max())
+        else:
+            confidence_mean = confidence_min = confidence_max = None
+
+        regions.append({
+            "region_id"      : i + 1,
+            "area_pixels"    : int(cv2.contourArea(cnt)),
+            "confidence_mean": confidence_mean,
+            "confidence_min" : confidence_min,
+            "confidence_max" : confidence_max,
+            "polygon"        : pts.tolist() if pts.ndim == 2 else [pts.tolist()],
+        })
+    return {
+        "scan"        : scan_name,
+        "patient_id"  : patient_id,
+        "timepoint"   : timepoint,
+        "model"       : model_name,
+        "threshold"   : threshold,
+        "image_size"  : {"height": tif_shape[0], "width": tif_shape[1]},
+        "burn_regions": len(regions),
+        "regions"     : regions,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  STEP 4+5 — WRAP TO 3D + ALIGN
+# ─────────────────────────────────────────────────────────────────────────────
+
+def wrap_and_align(range_path: Path, colored_img: np.ndarray, scan_dir: Path, scan_name: str):
+    """
+    Reconstructs 3D from the range file (unchanged -- this is what correctly
+    correlates each 3D point back to its 2D pixel for burn coloring).
+
+    Alignment now comes from step3's {scan}_alignment.json (the landmark-
+    based rigid transform), NOT the old fixed Rx/Ry rotation. If that file
+    doesn't exist yet for this scan (step3 hasn't processed it, or failed),
+    the point cloud is left UNALIGNED rather than falling back to the old
+    guess -- an unaligned scan is still useful on its own (burn area, shape),
+    it just isn't yet comparable across timepoints until step3 catches up.
+    Returns (pcd, aligned: bool).
+    """
+    print(f"\n  [3D] Reconstructing from range file...")
+    pts, colors, _, _, _ = range_to_3d(range_path, colored_img)
+    print(f"  [3D] Valid points: {len(pts):,}")
+    pcd = build_pcd(pts, colors)
+
+    alignment_path = scan_dir / f"{scan_name}_alignment.json"
+    if alignment_path.exists():
+        alignment = json.loads(alignment_path.read_text())
+        R = np.array(alignment["rotation"])
+        t = np.array(alignment["translation"])
+        pts_aligned = np.asarray(pcd.points) @ R.T + t
+        pcd.points = o3d.utility.Vector3dVector(pts_aligned)
+        print(f"  [3D] Aligned using {alignment_path.name}  "
+              f"(reference: {alignment.get('reference_scan')}, "
+              f"RMS: {alignment.get('rms_residual_mm', 0):.2f}mm)")
+        return pcd, True
+    else:
+        print(f"  [3D] ⚠ No {alignment_path.name} found -- saving UNALIGNED "
+              f"(run step3 for this scan to enable cross-timepoint comparison)")
+        return pcd, False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  PROCESS ONE SCAN SUBFOLDER
+# ─────────────────────────────────────────────────────────────────────────────
+
+def process_one_scan(scan_dir: Path, args):
+    """
+    scan_dir  — e.g. .../PAT01/D00/PAT01_D00_A/
+    Expects inside it:
+        PAT01_D00_A.tif      (texture)
+        PAT01_D00_A          (Cyberware range file, no extension)
+    Writes back into scan_dir:
+        PAT01_D00_A_seg.tif
+        PAT01_D00_A_burn3d.ply
+        PAT01_D00_A_burn_polygons.json
+        PAT01_D00_A_burn_mask.png   (if --save-mask)
+    """
+    scan_name  = scan_dir.name
+    tif_path   = scan_dir / f"{scan_name}.tif"
+    range_path = scan_dir / scan_name          # no extension
+
+    if not tif_path.exists():
+        raise FileNotFoundError(f"TIF not found: {tif_path}")
+    if not range_path.exists():
+        raise FileNotFoundError(f"Range file not found: {range_path}")
+
+    # Parse patient / timepoint from folder name
+    m          = SCAN_RE.match(scan_name)
+    patient_id = m.group("patient").upper() if m else "UNKNOWN"
+    timepoint  = m.group("timepoint").upper() if m else "?"
+
+    # Per-patient threshold override (falls back to the general default --
+    # never falls back to a previous scan's overridden value)
+    args.threshold = args.patient_thresholds.get(patient_id, args.default_threshold)
+
+    print(f"\n{'─'*60}")
+    print(f"  Scan     : {scan_name}")
+    print(f"  Patient  : {patient_id}  |  Timepoint: {timepoint}  |  Model: {args.model.upper()}")
+    print(f"  Threshold: {args.threshold}" +
+          ("  (patient override)" if patient_id in args.patient_thresholds else "  (general default)"))
+    print(f"  Output   : {scan_dir}  (in-place)")
+    print(f"{'─'*60}")
+
+    # Step 1 — load
+    img_rgb = load_tiff(tif_path)
+
+    # Step 2 — segment
+    mask, prob_map = run_segmentation(img_rgb, args)
+
+    # Step 3 — colour
+    colored_img, contours = apply_burn_colors(img_rgb, mask)
+    print(f"\n  [COLOR] Burn regions found: {len(contours)}")
+
+    # ── Save segmented TIFF (in-place) ───────────────────────────────────────
+    seg_tif_path = scan_dir / f"{scan_name}_seg.tif"
+    tifffile.imwrite(str(seg_tif_path), colored_img)
+    print(f"  [SAVE] Seg TIF  → {seg_tif_path.name}")
+
+    # ── Save polygon JSON (always) ────────────────────────────────────────────
+    json_data = polygons_to_json(
+        contours, scan_name, img_rgb.shape, prob_map,
+        patient_id=patient_id, timepoint=timepoint,
+        model_name=args.model, threshold=args.threshold,
+    )
+
+    alignment_path = scan_dir / f"{scan_name}_alignment.json"
+    is_aligned = alignment_path.exists()
+    json_data["aligned"] = is_aligned
+
+    # Add each region's polygon in 3D (same grid math as step2, aligned with
+    # the SAME transform used for the point cloud, if available)
+    try:
+        radius_mm, valid_mask, NLG, NLT, theta_step, z_scale_mm = load_range_grid_for_polygons(range_path)
+        cw, ch = img_rgb.shape[1], img_rgb.shape[0]
+        R, t = None, None
+        if is_aligned:
+            alignment = json.loads(alignment_path.read_text())
+            R, t = alignment["rotation"], alignment["translation"]
+        for i, region in enumerate(json_data["regions"]):
+            region["polygon_3d"] = project_polygon_to_3d(
+                contours[i], cw, ch, radius_mm, valid_mask, NLG, NLT,
+                theta_step, z_scale_mm, R, t
+            )
+    except Exception as e:
+        print(f"  ⚠ Could not project polygons to 3D: {e}")
+
+    json_path = scan_dir / f"{scan_name}_burn_polygons.json"
+    with open(json_path, "w") as f:
+        json.dump(json_data, f, indent=2)
+    print(f"  [SAVE] Polygons → {json_path.name}  ({len(contours)} region(s))")
+
+    # ── Optional: binary mask PNG ─────────────────────────────────────────────
+    if args.save_mask:
+        mask_path = scan_dir / f"{scan_name}_burn_mask.png"
+        cv2.imwrite(str(mask_path), mask)
+        print(f"  [SAVE] Mask     → {mask_path.name}")
+
+    # Step 4+5 — 3D reconstruction with burn colours baked in
+    pcd, aligned = wrap_and_align(range_path, colored_img, scan_dir, scan_name)
+
+    # ── Save PLY (always) + snapshot (optional, tied to --save-mask) ─────────
+    ply_path = scan_dir / f"{scan_name}_burn3d.ply"
+    pts_out    = np.asarray(pcd.points).astype(np.float32)
+    colors_out = (np.asarray(pcd.colors) * 255).astype(np.uint8)
+    sz = write_ply(pts_out, colors_out, ply_path)
+
+    print(f"\n  [OUT] PLY       → {ply_path.name}  ({sz/1e6:.1f} MB)" +
+          ("" if aligned else "  (UNALIGNED)"))
+
+    if args.save_mask:
+        png_path = scan_dir / f"{scan_name}_front.png"
+        render_snapshot(pcd, png_path)
+        print(f"  [OUT] Snapshot  → {png_path.name}")
+
+    if args.show:
+        o3d.visualization.draw_geometries(
+            [pcd], window_name=f"{scan_name} — burn segmentation",
+            width=900, height=700)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  DISCOVER ALL SCAN SUBFOLDERS
+# ─────────────────────────────────────────────────────────────────────────────
+
+def discover_scans(dataset_dir: Path, patient_filter=None, timepoint_filter=None):
+    """
+    Walk:  dataset_dir / PAT* / [DM]* / PAT*_[DM]*_* /
+    Return sorted list of valid scan Path objects.
+    """
+    scans = []
+    for pat_dir in sorted(dataset_dir.iterdir()):
+        if not pat_dir.is_dir():
+            continue
+        if patient_filter and pat_dir.name.upper() != patient_filter.upper():
+            continue
+
+        for tp_dir in sorted(pat_dir.iterdir(), key=lambda p: _tp_key(p.name)):
+            if not tp_dir.is_dir():
+                continue
+            if timepoint_filter and tp_dir.name.upper() != timepoint_filter.upper():
+                continue
+
+            for scan_dir in sorted(tp_dir.iterdir()):
+                if not scan_dir.is_dir():
+                    continue
+                if not SCAN_RE.match(scan_dir.name):
+                    continue
+
+                tif_path   = scan_dir / f"{scan_dir.name}.tif"
+                range_path = scan_dir / scan_dir.name
+                if tif_path.exists() and range_path.exists():
+                    scans.append(scan_dir)
+                else:
+                    if not tif_path.exists():
+                        print(f"  ⚠  TIF missing  : {tif_path}")
+                    if not range_path.exists():
+                        print(f"  ⚠  Range missing: {range_path}")
+    return scans
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  PARSE ARGS
+# ─────────────────────────────────────────────────────────────────────────────
+
+def parse_args():
+    p = argparse.ArgumentParser(description="Burn segmentation → 3D point cloud pipeline")
+    p.add_argument("--config",      default=None, help="Path to config.yaml")
+    p.add_argument("--dataset",     default=None, help="Dataset root folder (batch mode)")
+    p.add_argument("--patient",     default=None, help="Filter to one patient e.g. PAT01")
+    p.add_argument("--timepoint",   default=None, help="Filter to one timepoint e.g. D00")
+    p.add_argument("--scandir",     default=None, help="Single scan subfolder path")
+    p.add_argument("--model",       default=None, choices=["unetpp", "segformer", "medsam", "sam2"])
+    p.add_argument("--ckpt",        default=None, help=".pth file or folder (segformer)")
+    p.add_argument("--base-ckpt",   default=None, help="Base weights for medsam/sam2")
+    p.add_argument("--sam2-repo",   default=None, help="segment-anything-2 repo path")
+    p.add_argument("--threshold",   type=float, default=None, help="Burn threshold (default 0.5)")
+    p.add_argument("--fine-yaw",    type=float, default=None, help="Fine yaw correction degrees")
+    p.add_argument("--save-mask",   action="store_true", help="Save binary burn mask PNG")
+    p.add_argument("--show",        action="store_true", help="Open 3D viewer after each scan")
+
+    args = p.parse_args()
+
+    # If --config wasn't given, auto-use config.yaml sitting next to this
+    # script, if it exists -- so you don't have to type --config every time.
+    if args.config is None:
+        default_config = Path(__file__).parent / "config.yaml"
+        if default_config.exists():
+            args.config = str(default_config)
+            print(f"  (using default config: {default_config})")
+
+    # Merge config.yaml — only model/checkpoint/parameter settings, NEVER run-mode paths
+    if args.config:
+        import yaml
+        with open(args.config, "r") as f:
+            cfg = yaml.safe_load(f)
+        # ↓ dataset / patient / timepoint / scandir intentionally excluded
+        if args.model      is None: args.model      = cfg.get("model")
+        if args.ckpt       is None: args.ckpt       = cfg.get("ckpt")
+        if args.base_ckpt  is None: args.base_ckpt  = cfg.get("base_ckpt")
+        if args.sam2_repo  is None: args.sam2_repo  = cfg.get("sam2_repo")
+        if args.threshold  is None: args.threshold  = cfg.get("threshold", 0.5)
+        if args.fine_yaw   is None: args.fine_yaw   = cfg.get("fine_yaw", 0.0)
+        if not args.save_mask:      args.save_mask  = cfg.get("save_mask", False)
+        if not args.show:           args.show       = cfg.get("show", False)
+        args.patient_thresholds = {
+            k.upper(): float(v) for k, v in cfg.get("patient_thresholds", {}).items()
+        }
+    else:
+        args.patient_thresholds = {}
+
+    # Defaults
+    if args.threshold is None: args.threshold = 0.5
+    if args.fine_yaw  is None: args.fine_yaw  = 0.0
+    args.default_threshold = args.threshold  # preserved, never overwritten per-scan
+
+    # --scandir always wins over dataset — single scan takes priority
+    if args.scandir:
+        args.dataset = None
+
+    # Validate
+    for field, name in [(args.model, "--model"), (args.ckpt, "--ckpt")]:
+        if not field:
+            p.error(f"{name} is required (pass as argument or set in config.yaml)")
+
+    if not args.dataset and not args.scandir:
+        p.error("Provide --dataset (batch) or --scandir (single scan)")
+
+    return args
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  MAIN
+# ─────────────────────────────────────────────────────────────────────────────
+
+def main():
+    args = parse_args()
+
+    # DEBUG
+    print(f"  DEBUG dataset  : '{args.dataset}'")
+    print(f"  DEBUG scandir  : '{args.scandir}'")
+    print(f"  DEBUG patient  : '{args.patient}'")
+    print(f"  DEBUG model    : '{args.model}'")
+    print(f"  DEBUG config   : '{args.config}'")
+    # END DEBUG
+
+    print(f"\n{'='*60}")
+    print(f"  Burn 3D Pipeline")
+    print(f"  Model   : {args.model.upper()}")
+    print(f"  Outputs : saved in-place inside each scan subfolder")
+    print(f"{'='*60}")
+
+    if args.dataset:
+        # ── Batch mode ────────────────────────────────────────────────────────
+        dataset_dir = Path(args.dataset)
+        if not dataset_dir.exists():
+            print(f"  Dataset not found: {dataset_dir}")
+            sys.exit(1)
+
+        scans = discover_scans(dataset_dir,
+                               patient_filter=args.patient,
+                               timepoint_filter=args.timepoint)
+        if not scans:
+            print("  No valid scans found.")
+            sys.exit(1)
+
+        print(f"  Mode    : BATCH  ({len(scans)} scan(s) found)")
+        if args.patient:   print(f"  Patient  : {args.patient}")
+        if args.timepoint: print(f"  Timepoint: {args.timepoint}")
+
+        ok, failed = 0, []
+        for scan_dir in scans:
+            try:
+                process_one_scan(scan_dir, args)
+                ok += 1
+            except Exception as e:
+                print(f"  ✗ {scan_dir.name} failed: {e}")
+                failed.append((scan_dir.name, str(e)))
+
+        print(f"\n{'='*60}")
+        print(f"  ALL DONE  —  {ok} succeeded, {len(failed)} failed")
+        if failed:
+            for name, err in failed:
+                print(f"    ✗ {name}: {err}")
+        print(f"{'='*60}\n")
+
+    else:
+        # ── Single scan mode ─────────────────────────────────────────────────
+        print(f"  Mode    : SINGLE")
+        process_one_scan(Path(args.scandir), args)
+        print(f"\n{'='*60}")
+        print(f"  DONE")
+        print(f"{'='*60}\n")
+
+
+if __name__ == "__main__":
+    main()

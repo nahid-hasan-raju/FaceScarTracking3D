@@ -1,0 +1,16 @@
+# burn_3d_pipeline requirements
+# Install base requirements first:
+#   pip install -r requirements.txt
+#
+# Then install model-specific requirements based on which model you use:
+#   UNet++    : pip install segmentation-models-pytorch albumentations
+#   SegFormer : pip install transformers==4.40.0
+#   MedSAM    : pip install git+https://github.com/facebookresearch/segment-anything.git
+#   SAM2      : git clone https://github.com/facebookresearch/segment-anything-2.git
+#               cd segment-anything-2 && pip install -e . && cd ..
+
+numpy
+pillow
+opencv-python
+open3d
+torch
