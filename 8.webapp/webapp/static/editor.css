@@ -143,3 +143,101 @@ canvas { display: block; }
   font-size: 12px;
   padding: 8px;
 }
+
+/* --- Other Files panel --- */
+.extra-file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  margin-bottom: 2px;
+}
+.extra-file-row:hover { background: var(--panel-2); }
+.extra-file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.extra-file-tag {
+  flex-shrink: 0;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.extra-file-tag.tag-mesh_3d { color: var(--accent); border-color: var(--accent); }
+.extra-file-tag.tag-seg_image, .extra-file-tag.tag-image { color: var(--good); border-color: var(--good); }
+.extra-file-tag.tag-data { color: var(--accent-2); border-color: var(--accent-2); }
+
+/* --- Modal --- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.modal-overlay.hidden { display: none; }
+.modal-box {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  width: min(900px, 90vw);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 600;
+}
+.modal-body {
+  padding: 14px;
+  overflow: auto;
+}
+.modal-image {
+  max-width: 100%;
+  max-height: 70vh;
+  display: block;
+  margin: 0 auto;
+  border-radius: 6px;
+}
+.modal-json {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+  margin: 0;
+}
+.viewer3d-container {
+  width: 100%;
+  height: 70vh;
+  position: relative;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.viewer3d-loading {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--muted);
+  font-size: 13px;
+}

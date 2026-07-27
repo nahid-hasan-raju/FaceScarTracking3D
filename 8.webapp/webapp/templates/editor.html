@@ -52,6 +52,19 @@
         Regions loaded from SAM2 show as <strong>sam2</strong> source. Anything you draw
         or edit is marked <strong>manual</strong>/<strong>manual_edit</strong> on save.
       </div>
+
+      <div class="section-title">Other Files</div>
+      <div id="extra-files-list" class="empty-note">Loading…</div>
+    </div>
+  </div>
+
+  <div id="modal-overlay" class="modal-overlay hidden">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span id="modal-title">—</span>
+        <button class="btn" id="modal-close">✕</button>
+      </div>
+      <div class="modal-body" id="modal-body"></div>
     </div>
   </div>
 
@@ -61,8 +74,19 @@
       imageUrl: {{ image_url | tojson }},
       polygonsUrl: {{ polygons_url | tojson }},
       polygonsSaveUrl: {{ polygons_save_url | tojson }},
+      scanFilesUrl: {{ ("/api/scan_files/" + scan_id) | tojson }},
     };
   </script>
   <script src="{{ static_prefix }}/editor.js"></script>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module" src="{{ static_prefix }}/viewer3d.js"></script>
+  <script src="{{ static_prefix }}/scan_files.js"></script>
 </body>
 </html>

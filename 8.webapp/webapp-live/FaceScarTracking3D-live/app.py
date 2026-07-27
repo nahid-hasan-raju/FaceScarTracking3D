@@ -63,14 +63,30 @@ def api_patient_scans(patient):
 def api_thumbnail(scan_id):
     from PIL import Image
 
+    variant = request.args.get("variant", "original")
+
     tree = ds.get_tree(_require_root_id())
     loc = ds.find_scan(tree, scan_id)
     if loc is None:
         return jsonify({"error": "scan not found"}), 404
     _, _, scan = loc
 
-    raw = ds.download_file_bytes(scan["tif"]["id"])
-    im = Image.open(io.BytesIO(raw)).convert("RGB")
+    file_entry = (scan.get("variants") or {}).get(variant)
+    if file_entry is None:
+        return jsonify({"error": f"no '{variant}' file for this scan"}), 404
+
+    try:
+        raw = ds.download_file_bytes(file_entry["id"])
+        im = Image.open(io.BytesIO(raw)).convert("RGB")
+    except Exception as e:
+        print(
+            f"[thumbnail] could not load/decode tif for {scan_id!r} variant={variant!r}: "
+            f"file={file_entry['name']!r} id={file_entry['id']!r} error={e}"
+        )
+        return jsonify({
+            "error": f"could not load or decode this scan's '{variant}' tif",
+            "file": file_entry["name"],
+        }), 500
     im.thumbnail((220, 220))
     buf = io.BytesIO()
     im.save(buf, format="JPEG", quality=80)
@@ -118,8 +134,18 @@ def api_image(scan_id):
         return jsonify({"error": "scan not found"}), 404
     _, _, scan = loc
 
-    raw = ds.download_file_bytes(scan["tif"]["id"])
-    im = Image.open(io.BytesIO(raw)).convert("RGB")
+    try:
+        raw = ds.download_file_bytes(scan["tif"]["id"])
+        im = Image.open(io.BytesIO(raw)).convert("RGB")
+    except Exception as e:
+        print(
+            f"[image] could not load/decode tif for {scan_id!r}: "
+            f"file={scan['tif']['name']!r} id={scan['tif']['id']!r} error={e}"
+        )
+        return jsonify({
+            "error": "could not load or decode this scan's .tif",
+            "file": scan["tif"]["name"],
+        }), 500
     buf = io.BytesIO()
     im.save(buf, format="PNG")
     buf.seek(0)
@@ -205,6 +231,7 @@ def api_preview_json(scan_id, file_id):
 
 
 
+@app.route("/api/polygons/<scan_id>", methods=["GET"])
 def api_get_polygons(scan_id):
     from PIL import Image
 
@@ -214,9 +241,19 @@ def api_get_polygons(scan_id):
         return jsonify({"error": "scan not found"}), 404
     _, _, scan = loc
 
-    raw = ds.download_file_bytes(scan["tif"]["id"])
-    with Image.open(io.BytesIO(raw)) as im:
-        size = im.size
+    try:
+        raw = ds.download_file_bytes(scan["tif"]["id"])
+        with Image.open(io.BytesIO(raw)) as im:
+            size = im.size
+    except Exception as e:
+        print(
+            f"[polygons] could not load/decode tif for {scan_id!r}: "
+            f"file={scan['tif']['name']!r} id={scan['tif']['id']!r} error={e}"
+        )
+        return jsonify({
+            "error": "could not load or decode this scan's .tif",
+            "file": scan["tif"]["name"],
+        }), 500
     return jsonify(ds.load_polygons(scan, scan_id, size))
 
 

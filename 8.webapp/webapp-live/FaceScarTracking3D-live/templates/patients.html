@@ -42,6 +42,17 @@
   .card .label { padding: 8px 10px; font-size: 12px; }
   .card .scan-id { font-weight: 600; margin-bottom: 4px; word-break: break-all; }
 
+  .no-variant {
+    width: 100%; height: 120px; display: flex; align-items: center; justify-content: center;
+    background: #14161a; color: #6b7280; font-size: 11px; text-align: center; padding: 8px;
+  }
+
+  select#variant-select {
+    background: #23262e; border: 1px solid #383c46; color: #e6e8ec;
+    padding: 8px 12px; border-radius: 6px; font-size: 14px; min-width: 160px;
+  }
+  select#variant-select:focus { outline: none; border-color: #4fb2e0; }
+
   .empty-note { color: #9198a6; font-size: 13px; margin-top: 20px; }
 </style>
 </head>
@@ -56,6 +67,13 @@
       <option value="{{ p.patient }}">{{ p.patient }} ({{ p.scan_count }} scans, {{ p.day0_count }} Day-0)</option>
       {% endfor %}
     </select>
+
+    <select id="variant-select">
+      <option value="original">Original tif</option>
+      <option value="normalized">Normalized tif</option>
+      <option value="seg">Segmentation tif</option>
+    </select>
+
     <span class="stats" id="stats"></span>
   </div>
 
@@ -63,19 +81,37 @@
 
   <script>
     const select = document.getElementById("patient-select");
+    const variantSelect = document.getElementById("variant-select");
     const container = document.getElementById("grid-container");
     const stats = document.getElementById("stats");
 
-    function cardHtml(s) {
+    const VARIANT_LABELS = {
+      original: "original tif",
+      normalized: "normalized tif",
+      seg: "segmentation tif",
+    };
+
+    let currentScans = null; // cached scan list for the selected patient, so
+                              // switching the variant dropdown doesn't refetch
+
+    function cardHtml(s, variant) {
       const typeBadge = s.is_day0
         ? '<span class="badge day0">Day-0</span>'
         : '<span class="badge later">later visit</span>';
       const polyBadge = s.has_polygons
         ? '<span class="badge yes">saved</span>'
         : '<span class="badge no">none yet</span>';
+
+      const hasVariant = Array.isArray(s.variants) && s.variants.includes(variant);
+      const label = VARIANT_LABELS[variant] || variant;
+      const imgHtml = hasVariant
+        ? `<img src="/api/thumbnail/${s.scan_id}?variant=${variant}" loading="lazy" alt="${s.scan_id}"
+             onerror="this.outerHTML = '<div class=&quot;no-variant&quot;>Could not load ${label}</div>';" />`
+        : `<div class="no-variant">No ${label} for this scan</div>`;
+
       return `
         <div class="card" onclick="window.location='/edit/${s.scan_id}'">
-          <img src="/api/thumbnail/${s.scan_id}" loading="lazy" alt="${s.scan_id}" />
+          ${imgHtml}
           <div class="label">
             <div class="scan-id">${s.scan_id}</div>
             ${typeBadge} ${polyBadge}
@@ -83,16 +119,7 @@
         </div>`;
     }
 
-    async function loadPatient(patient) {
-      if (!patient) {
-        container.innerHTML = "";
-        stats.textContent = "";
-        return;
-      }
-      container.innerHTML = '<p class="empty-note">Loading scans...</p>';
-      const res = await fetch(`/api/patient/${patient}/scans`);
-      const scans = await res.json();
-
+    function renderScans(scans, variant) {
       if (!scans.length) {
         container.innerHTML = '<p class="empty-note">No scans found for this patient.</p>';
         stats.textContent = "";
@@ -116,10 +143,28 @@
           ? '<span class="badge day0">Day-0</span>'
           : '<span class="badge later">later visit</span>';
         html += `<div class="group-title">${g.timepoint} ${badge}</div>`;
-        html += `<div class="grid">${g.items.map(cardHtml).join("")}</div>`;
+        html += `<div class="grid">${g.items.map((s) => cardHtml(s, variant)).join("")}</div>`;
       }
       container.innerHTML = html;
-      stats.textContent = `${scans.length} scans across ${groups.length} timepoint(s)`;
+
+      const missing = scans.filter((s) => !(s.variants || []).includes(variant)).length;
+      const label = VARIANT_LABELS[variant] || variant;
+      stats.textContent = missing
+        ? `${scans.length} scans across ${groups.length} timepoint(s) — ${missing} missing ${label}`
+        : `${scans.length} scans across ${groups.length} timepoint(s)`;
+    }
+
+    async function loadPatient(patient) {
+      if (!patient) {
+        currentScans = null;
+        container.innerHTML = "";
+        stats.textContent = "";
+        return;
+      }
+      container.innerHTML = '<p class="empty-note">Loading scans...</p>';
+      const res = await fetch(`/api/patient/${patient}/scans`);
+      currentScans = await res.json();
+      renderScans(currentScans, variantSelect.value);
     }
 
     select.addEventListener("change", () => {
@@ -129,6 +174,10 @@
       else url.searchParams.delete("patient");
       window.history.replaceState({}, "", url);
       loadPatient(patient);
+    });
+
+    variantSelect.addEventListener("change", () => {
+      if (currentScans) renderScans(currentScans, variantSelect.value);
     });
 
     // pre-select from ?patient= (e.g. coming back from the editor)

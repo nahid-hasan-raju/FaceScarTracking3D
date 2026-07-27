@@ -1,194 +1,276 @@
 """
-Standalone Burn Region Polygon Editor
-======================================
+Burn Polygon Editor — live version, backed by Google Drive
+=============================================================
 
-Loads a single scan folder (a Day-0 scan, e.g. PAT01_D00_A) and lets you
-review / correct SAM2's predicted burn polygons, or draw new ones from
-scratch, in the browser. Saves back to a *_burn_polygons.json file next
-to the .tif, matching the naming convention your pipeline already uses.
+Same picker (Patients -> Timepoints -> Scans -> Editor) and same editor UI
+as the local tool, but reads/writes scans and polygon JSON from a Google
+Drive folder instead of a local disk path, so it can run as a normal web
+service instead of `python run_with_picker.py --dataset ...` on your PC.
 
-USAGE
------
-    python app.py --scandir "D:\\NahidW\\Dataset\\face_burn_dataset\\PAT01\\D00\\PAT01_D00_A"
-    python app.py --scandir /path/to/PAT01_D00_A --port 5050
+REQUIRED ENVIRONMENT VARIABLES (set these on your host, not in code):
+    GOOGLE_CREDENTIALS_JSON   service account key JSON, as one string
+    DRIVE_ROOT_FOLDER_ID      Drive folder ID of your dataset root
 
-It auto-detects:
-  - the scan's .tif image (skips any *_seg.tif segmentation overlay file)
-  - an existing *_burn_polygons.json (SAM2 output) to preload as a starting point
+See README_DEPLOY.md for the full step-by-step setup.
 
-If no _burn_polygons.json exists yet, the editor opens empty and you draw
-from scratch. On save, a one-time backup of the original SAM2 json is
-kept alongside as *_burn_polygons.sam2_backup.json.
-
-SCHEMA
-------
-This tool reads/writes a JSON shape of:
-    {
-      "scan_id": "PAT01_D00_A",
-      "image_size": [W, H],
-      "regions": [
-        {"id": 1, "label": "region_1", "source": "sam2"|"manual"|"manual_edit",
-         "confidence": 0.92, "polygon": [[x,y], [x,y], ...]}
-      ]
-    }
-
-If your existing pipeline's _burn_polygons.json uses different field
-names, adjust `load_polygons_file()` / `save_polygons_file()` below --
-those two functions are the only place schema translation happens.
+Local dev run:
+    export GOOGLE_CREDENTIALS_JSON="$(cat service-account.json)"
+    export DRIVE_ROOT_FOLDER_ID="1AbCxyz..."
+    python app.py
 """
 
-import argparse
 import io
 import json
-import shutil
-from pathlib import Path
+import mimetypes
+import os
 
 from flask import Flask, jsonify, render_template, request, send_file
 
+import drive_storage as ds
+
 app = Flask(__name__, static_folder="static", template_folder="templates")
 
-SCAN_DIR: Path = None
-SCAN_ID: str = None
-TIF_PATH: Path = None
-JSON_PATH: Path = None
+ROOT_FOLDER_ID = os.environ.get("DRIVE_ROOT_FOLDER_ID")
 
 
-def find_scan_files(scandir: Path):
-    """Locate the scan's .tif image and its polygons json inside scandir."""
-    tif_candidates = sorted(
-        p for p in scandir.glob("*.tif") if "_seg" not in p.stem.lower()
-    )
-    if not tif_candidates:
-        raise FileNotFoundError(f"No .tif file found in {scandir}")
-    tif_path = tif_candidates[0]
-
-    scan_id = tif_path.stem
-    json_path = scandir / f"{scan_id}_burn_polygons.json"
-    return scan_id, tif_path, json_path
+def _require_root_id():
+    if not ROOT_FOLDER_ID:
+        raise RuntimeError("DRIVE_ROOT_FOLDER_ID environment variable is not set")
+    return ROOT_FOLDER_ID
 
 
-def load_polygons_file(json_path: Path, image_size):
-    """Read existing polygons json (e.g. SAM2 output). Returns normalized dict.
-    ADJUST HERE if your existing schema differs from the one documented above.
-    """
-    if not json_path.exists():
-        return {"scan_id": SCAN_ID, "image_size": list(image_size), "regions": []}
-
-    with open(json_path, "r") as f:
-        raw = json.load(f)
-
-    # Best-effort adaptation: accept either "regions" or "polygons" as the key,
-    # and either "polygon"/"points"/"coords" for the point list.
-    regions_raw = raw.get("regions") or raw.get("polygons") or []
-    regions = []
-    for i, r in enumerate(regions_raw):
-        poly = r.get("polygon") or r.get("points") or r.get("coords") or []
-        regions.append({
-            "id": r.get("id", i + 1),
-            "label": r.get("label", f"region_{i + 1}"),
-            "source": r.get("source", "sam2"),
-            "confidence": r.get("confidence"),
-            "polygon": poly,
-        })
-
-    return {
-        "scan_id": raw.get("scan_id", SCAN_ID),
-        "image_size": raw.get("image_size", list(image_size)),
-        "regions": regions,
-    }
-
-
-def save_polygons_file(json_path: Path, payload: dict):
-    """Write edited polygons back to disk, backing up an original SAM2 file once."""
-    if json_path.exists():
-        backup_path = json_path.with_name(json_path.stem + ".sam2_backup.json")
-        if not backup_path.exists():
-            # Only back up if the existing file wasn't already manually edited
-            try:
-                with open(json_path) as f:
-                    existing = json.load(f)
-                if all(r.get("source", "sam2") == "sam2" for r in existing.get("regions", existing.get("polygons", []))):
-                    shutil.copy(json_path, backup_path)
-            except Exception:
-                pass
-
-    # Mark any region whose source was "sam2" but got touched as "manual_edit".
-    # (The frontend already sets brand-new regions to "manual".)
-    with open(json_path, "w") as f:
-        json.dump(payload, f, indent=2)
+@app.route("/healthz")
+def healthz():
+    return jsonify({"status": "ok"})
 
 
 @app.route("/")
-def index():
+def patients_page():
+    tree = ds.get_tree(_require_root_id())
+    patients = ds.discover_patients(tree)
+    return render_template("patients.html", patients=patients)
+
+
+@app.route("/api/patient/<patient>/scans")
+def api_patient_scans(patient):
+    tree = ds.get_tree(_require_root_id())
+    if patient not in tree:
+        return jsonify({"error": "patient not found"}), 404
+    return jsonify(ds.all_scans_for_patient(tree, patient))
+
+
+@app.route("/api/thumbnail/<scan_id>")
+def api_thumbnail(scan_id):
+    from PIL import Image
+
+    variant = request.args.get("variant", "original")
+
+    tree = ds.get_tree(_require_root_id())
+    loc = ds.find_scan(tree, scan_id)
+    if loc is None:
+        return jsonify({"error": "scan not found"}), 404
+    _, _, scan = loc
+
+    file_entry = (scan.get("variants") or {}).get(variant)
+    if file_entry is None:
+        return jsonify({"error": f"no '{variant}' file for this scan"}), 404
+
+    try:
+        raw = ds.download_file_bytes(file_entry["id"])
+        im = Image.open(io.BytesIO(raw)).convert("RGB")
+    except Exception as e:
+        print(
+            f"[thumbnail] could not load/decode tif for {scan_id!r} variant={variant!r}: "
+            f"file={file_entry['name']!r} id={file_entry['id']!r} error={e}"
+        )
+        return jsonify({
+            "error": f"could not load or decode this scan's '{variant}' tif",
+            "file": file_entry["name"],
+        }), 500
+    im.thumbnail((220, 220))
+    buf = io.BytesIO()
+    im.save(buf, format="JPEG", quality=80)
+    buf.seek(0)
+    return send_file(buf, mimetype="image/jpeg")
+
+
+@app.route("/patient/<patient>")
+def timepoints_page(patient):
+    tree = ds.get_tree(_require_root_id())
+    timepoints = ds.discover_timepoints(tree, patient)
+    return render_template("timepoints.html", patient=patient, timepoints=timepoints)
+
+
+@app.route("/patient/<patient>/<timepoint>")
+def scans_page(patient, timepoint):
+    tree = ds.get_tree(_require_root_id())
+    scans = ds.discover_scans_in_timepoint(tree, patient, timepoint)
+    return render_template("scans.html", patient=patient, timepoint=timepoint, scans=scans)
+
+
+@app.route("/edit/<scan_id>")
+def edit(scan_id):
+    tree = ds.get_tree(_require_root_id())
+    loc = ds.find_scan(tree, scan_id)
+    back_url = f"/?patient={loc[0]}" if loc else "/"
     return render_template(
         "editor.html",
-        scan_id=SCAN_ID,
+        scan_id=scan_id,
         static_prefix="/static",
-        image_url="/api/image",
-        polygons_url="/api/polygons",
-        polygons_save_url="/api/polygons",
-        back_url=None,
+        image_url=f"/api/image/{scan_id}",
+        polygons_url=f"/api/polygons/{scan_id}",
+        polygons_save_url=f"/api/polygons/{scan_id}",
+        back_url=back_url,
     )
 
 
-@app.route("/api/image")
-def api_image():
+@app.route("/api/image/<scan_id>")
+def api_image(scan_id):
     from PIL import Image
 
-    try:
-        im = Image.open(TIF_PATH)
-        im = im.convert("RGB")
-    except Exception as e:
-        return jsonify({"error": f"Could not read tif: {e}"}), 500
+    tree = ds.get_tree(_require_root_id())
+    loc = ds.find_scan(tree, scan_id)
+    if loc is None:
+        return jsonify({"error": "scan not found"}), 404
+    _, _, scan = loc
 
+    try:
+        raw = ds.download_file_bytes(scan["tif"]["id"])
+        im = Image.open(io.BytesIO(raw)).convert("RGB")
+    except Exception as e:
+        print(
+            f"[image] could not load/decode tif for {scan_id!r}: "
+            f"file={scan['tif']['name']!r} id={scan['tif']['id']!r} error={e}"
+        )
+        return jsonify({
+            "error": "could not load or decode this scan's .tif",
+            "file": scan["tif"]["name"],
+        }), 500
     buf = io.BytesIO()
     im.save(buf, format="PNG")
     buf.seek(0)
     return send_file(buf, mimetype="image/png")
 
 
-@app.route("/api/polygons", methods=["GET"])
-def api_get_polygons():
+@app.route("/api/scan_files/<scan_id>")
+def api_scan_files(scan_id):
+    tree = ds.get_tree(_require_root_id())
+    loc = ds.find_scan(tree, scan_id)
+    if loc is None:
+        return jsonify({"error": "scan not found"}), 404
+    _, _, scan = loc
+    return jsonify(ds.classify_scan_files(scan))
+
+
+def _find_file_in_scan(scan: dict, file_id: str):
+    """Only serve files that actually belong to this scan's folder listing —
+    never an arbitrary Drive file id passed in the URL."""
+    for f in scan.get("files", []):
+        if f["id"] == file_id:
+            return f
+    return None
+
+
+@app.route("/api/raw/<scan_id>/<file_id>")
+def api_raw_file(scan_id, file_id):
+    """Serve a non-primary scan file as-is: png/jpg display natively,
+    json/other files download or open depending on the browser."""
+    tree = ds.get_tree(_require_root_id())
+    loc = ds.find_scan(tree, scan_id)
+    if loc is None:
+        return jsonify({"error": "scan not found"}), 404
+    _, _, scan = loc
+    f = _find_file_in_scan(scan, file_id)
+    if f is None:
+        return jsonify({"error": "file not found on this scan"}), 404
+
+    raw = ds.download_file_bytes(file_id)
+    mime, _ = mimetypes.guess_type(f["name"])
+    return send_file(io.BytesIO(raw), mimetype=mime or "application/octet-stream", download_name=f["name"])
+
+
+@app.route("/api/preview_tif/<scan_id>/<file_id>")
+def api_preview_tif(scan_id, file_id):
+    """Convert a secondary .tif (e.g. the *_seg.tif overlay) to PNG for
+    inline display, same as the main scan image conversion."""
     from PIL import Image
 
-    with Image.open(TIF_PATH) as im:
-        size = im.size  # (W, H)
-    data = load_polygons_file(JSON_PATH, size)
-    return jsonify(data)
+    tree = ds.get_tree(_require_root_id())
+    loc = ds.find_scan(tree, scan_id)
+    if loc is None:
+        return jsonify({"error": "scan not found"}), 404
+    _, _, scan = loc
+    f = _find_file_in_scan(scan, file_id)
+    if f is None:
+        return jsonify({"error": "file not found on this scan"}), 404
+
+    raw = ds.download_file_bytes(file_id)
+    im = Image.open(io.BytesIO(raw)).convert("RGB")
+    buf = io.BytesIO()
+    im.save(buf, format="PNG")
+    buf.seek(0)
+    return send_file(buf, mimetype="image/png")
 
 
-@app.route("/api/polygons", methods=["POST"])
-def api_save_polygons():
+@app.route("/api/preview_json/<scan_id>/<file_id>")
+def api_preview_json(scan_id, file_id):
+    tree = ds.get_tree(_require_root_id())
+    loc = ds.find_scan(tree, scan_id)
+    if loc is None:
+        return jsonify({"error": "scan not found"}), 404
+    _, _, scan = loc
+    f = _find_file_in_scan(scan, file_id)
+    if f is None:
+        return jsonify({"error": "file not found on this scan"}), 404
+
+    raw = ds.download_file_bytes(file_id)
+    try:
+        return jsonify(json.loads(raw))
+    except Exception:
+        return raw.decode("utf-8", errors="replace"), 200, {"Content-Type": "text/plain"}
+
+
+
+@app.route("/api/polygons/<scan_id>", methods=["GET"])
+def api_get_polygons(scan_id):
+    from PIL import Image
+
+    tree = ds.get_tree(_require_root_id())
+    loc = ds.find_scan(tree, scan_id)
+    if loc is None:
+        return jsonify({"error": "scan not found"}), 404
+    _, _, scan = loc
+
+    try:
+        raw = ds.download_file_bytes(scan["tif"]["id"])
+        with Image.open(io.BytesIO(raw)) as im:
+            size = im.size
+    except Exception as e:
+        print(
+            f"[polygons] could not load/decode tif for {scan_id!r}: "
+            f"file={scan['tif']['name']!r} id={scan['tif']['id']!r} error={e}"
+        )
+        return jsonify({
+            "error": "could not load or decode this scan's .tif",
+            "file": scan["tif"]["name"],
+        }), 500
+    return jsonify(ds.load_polygons(scan, scan_id, size))
+
+
+@app.route("/api/polygons/<scan_id>", methods=["POST"])
+def api_save_polygons(scan_id):
+    tree = ds.get_tree(_require_root_id())
+    loc = ds.find_scan(tree, scan_id)
+    if loc is None:
+        return jsonify({"error": "scan not found"}), 404
+    _, _, scan = loc
+
     payload = request.get_json(force=True)
-    save_polygons_file(JSON_PATH, payload)
+    ds.save_polygons(scan, scan_id, payload)
     return jsonify({"status": "ok"})
 
 
-def main():
-    global SCAN_DIR, SCAN_ID, TIF_PATH, JSON_PATH
-
-    parser = argparse.ArgumentParser(description="Standalone burn polygon editor")
-    parser.add_argument("--scandir", required=True, help="Path to a single scan folder, e.g. .../PAT01/D00/PAT01_D00_A")
-    parser.add_argument("--port", type=int, default=5050)
-    parser.add_argument("--host", default="127.0.0.1")
-    args = parser.parse_args()
-
-    SCAN_DIR = Path(args.scandir)
-    if not SCAN_DIR.exists():
-        raise SystemExit(f"scandir not found: {SCAN_DIR}")
-
-    SCAN_ID, TIF_PATH, JSON_PATH = find_scan_files(SCAN_DIR)
-
-    print("=" * 60)
-    print("  Burn Polygon Editor")
-    print(f"  Scan     : {SCAN_ID}")
-    print(f"  Image    : {TIF_PATH}")
-    print(f"  Polygons : {JSON_PATH}{'  (new)' if not JSON_PATH.exists() else ''}")
-    print(f"  URL      : http://{args.host}:{args.port}")
-    print("=" * 60)
-
-    app.run(host=args.host, port=args.port, debug=False)
-
-
 if __name__ == "__main__":
-    main()
+    # Local dev only. In production, gunicorn serves this via the Procfile.
+    port = int(os.environ.get("PORT", 5050))
+    app.run(host="0.0.0.0", port=port, debug=False)

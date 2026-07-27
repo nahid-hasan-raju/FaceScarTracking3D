@@ -424,25 +424,33 @@ window.addEventListener("beforeunload", (e) => {
 // ---------- boot ----------
 async function boot() {
   setStatus("Loading...", "");
-  const [polyRes, img] = await Promise.all([
-    fetch(window.EDITOR_CONFIG.polygonsUrl).then((r) => r.json()),
-    loadImage(window.EDITOR_CONFIG.imageUrl),
-  ]);
-  const norm = normalizeIncoming(polyRes);
-  state.imageSize = norm.imageSize.length ? norm.imageSize : [img.naturalWidth, img.naturalHeight];
-  state.regions = norm.regions;
-  state.nextId = Math.max(1, ...state.regions.map((r) => r.id + 1), 1);
-  state.image = img;
-  fitToScreen();
-  render();
-  setStatus("Loaded", "saved");
+  try {
+    const [polyRes, img] = await Promise.all([
+      fetch(window.EDITOR_CONFIG.polygonsUrl).then(async (r) => {
+        if (!r.ok) throw new Error(`polygons request failed (${r.status}): ${await r.text()}`);
+        return r.json();
+      }),
+      loadImage(window.EDITOR_CONFIG.imageUrl),
+    ]);
+    const norm = normalizeIncoming(polyRes);
+    state.imageSize = norm.imageSize.length ? norm.imageSize : [img.naturalWidth, img.naturalHeight];
+    state.regions = norm.regions;
+    state.nextId = Math.max(1, ...state.regions.map((r) => r.id + 1), 1);
+    state.image = img;
+    fitToScreen();
+    render();
+    setStatus("Loaded", "saved");
+  } catch (err) {
+    console.error("Editor failed to load:", err);
+    setStatus("Failed to load: " + err.message, "dirty");
+  }
 }
 
 function loadImage(url) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);
-    img.onerror = reject;
+    img.onerror = () => reject(new Error("image request failed"));
     img.src = url;
   });
 }
