@@ -34,6 +34,7 @@ from analysis_common import (
     load_tracking_json,
     format_timepoint_label,
 )
+import roi_lock
 
 HTML_HEAD = """<!DOCTYPE html>
 <html lang="en">
@@ -80,6 +81,91 @@ def _change_class(pct):
     if pct > 1:
         return "worsened"
     return "flat"
+
+
+def _build_roi_locked_section(dataset_dir: Path, patient: str) -> list:
+    """Reads what step1's roi_lock.generate_roi_analysis_for_patient() already
+    wrote to disk (doesn't recompute) and renders it as a report section,
+    clearly separated from the independent-detection section above."""
+    roi_outputs = roi_lock.read_roi_outputs(dataset_dir, patient)
+    if not roi_outputs:
+        return []
+
+    plots_dir = dataset_dir / patient / "analysis" / "roi_locked" / "plots"
+    parts = ["<h2>ROI-Locked Tracking (Day-0 fixed region)</h2>",
+             "<p style='font-size:13px;color:#555;'>Same scans, different question: "
+             "instead of trusting each day's independent detection at face value, "
+             "this locks the tracked region to what was detected on the baseline "
+             "(Day-0) scan, and only measures how much of that same physical area "
+             "is still flagged as burned on later scans. Less sensitive to a "
+             "single noisy day's detector output.</p>"]
+
+    table = ("<table><tr><th>Variant</th><th>Baseline</th><th>Latest</th>"
+              "<th>Baseline area</th><th>Latest area</th><th>% of baseline</th>"
+              "<th>Alignment</th><th>External alerts</th></tr>")
+
+    for variant, data in sorted(roi_outputs.items()):
+        ref, per_scan = data["reference"], data["per_scan"]
+        if not per_scan:
+            continue
+        latest = per_scan[-1]
+        baseline_tp = format_timepoint_label(ref["baseline_timepoint"])
+        latest_tp = format_timepoint_label(latest["timepoint"])
+
+        any_capped = any(s["shift_capped"] for s in per_scan)
+        align_str = "⚠ shift capped on ≥1 scan" if any_capped else "ok"
+
+        confirmed_alerts = [
+            (s, c) for s in per_scan for c in s["external_candidates"]
+            if c["persistence"] == "confirmed_recurring"
+        ]
+        alerts_str = f"⚠ {len(confirmed_alerts)} confirmed" if confirmed_alerts else "none"
+
+        pct = latest["roi_pct_of_baseline"]
+        pct_str = f"{pct:.1f}%" if pct is not None else "n/a"
+        cls = "improved" if (pct is not None and pct < 99) else (
+              "worsened" if (pct is not None and pct > 101) else "flat")
+
+        table += (
+            f"<tr><td>{variant}</td><td>{baseline_tp}</td><td>{latest_tp}</td>"
+            f"<td>{ref['baseline_total_area_mm2']:.1f} mm²</td>"
+            f"<td>{latest['roi_area_mm2']:.1f} mm²</td>"
+            f"<td class='{cls}'>{pct_str}</td>"
+            f"<td>{align_str}</td><td>{alerts_str}</td></tr>"
+        )
+
+    table += "</table>"
+    parts.append(table)
+
+    for variant, data in sorted(roi_outputs.items()):
+        plot_path = plots_dir / f"{patient}_{variant}_roi_vs_independent.png"
+        if plot_path.exists():
+            parts.append(f"<h3>Variant {variant}</h3>")
+            parts.append(f"<img src='{_b64_img(plot_path)}' alt='ROI-locked vs independent'>")
+
+        confirmed = [
+            (s, c) for s in data["per_scan"] for c in s["external_candidates"]
+            if c["persistence"] == "confirmed_recurring"
+        ]
+        if confirmed:
+            items = "".join(
+                f"<li>{format_timepoint_label(s['timepoint'])}: region {c['region_id']}, "
+                f"{c['area_mm2']:.1f} mm², {c['distance_from_nearest_roi_mm']:.1f} mm outside "
+                f"the tracked ROI</li>"
+                for s, c in confirmed
+            )
+            parts.append(
+                "<div class='caveat'>⚠ Possible burn activity detected outside the tracked "
+                f"region, recurring across consecutive scans — worth a manual look:<ul>{items}"
+                "</ul></div>"
+            )
+
+    parts.append(
+        "<p style='font-size:12px;color:#999;'>Color/erythema and 3D relief scoring "
+        "within the locked ROI are not wired in yet — see roi_lock.py for the planned "
+        "extension points.</p>"
+    )
+    return parts
 
 
 def build_patient_report(dataset_dir: Path, patient: str) -> Path:
@@ -160,6 +246,8 @@ def build_patient_report(dataset_dir: Path, patient: str) -> Path:
         else:
             body_parts.append("<p><em>No region-tracking file (folder 6 step 3) found yet "
                                "for this variant — only total area is shown.</em></p>")
+
+    body_parts.extend(_build_roi_locked_section(dataset_dir, patient))
 
     html = HTML_HEAD.format(title=f"{patient} Progress Report") + "\n".join(body_parts) + HTML_TAIL
 

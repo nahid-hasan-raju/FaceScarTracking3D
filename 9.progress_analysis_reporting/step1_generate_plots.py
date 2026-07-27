@@ -49,6 +49,7 @@ from analysis_common import (
     track_area_timeseries,
     format_timepoint_label,
 )
+import roi_lock
 
 plt.rcParams.update({
     "figure.facecolor": "white",
@@ -161,7 +162,21 @@ def generate_for_patient(dataset_dir: Path, patient: str) -> dict:
         print(f"  ✓ {patient}: {len(written)} plot(s) → {plots_dir}")
     else:
         print(f"  – {patient}: no plots generated (need ≥2 scans with area data per variant)")
-    return {"patient": patient, "plots": written}
+
+    # ROI-locked analysis (Day-0 fixed region) -- separate output folder,
+    # doesn't touch anything written above. Isolated so that one patient's
+    # bad/unusual data can't abort the whole multi-patient batch run.
+    try:
+        roi_results = roi_lock.generate_roi_analysis_for_patient(dataset_dir, patient)
+    except Exception as exc:
+        print(f"  ! {patient}: ROI-locked analysis skipped entirely due to an error "
+              f"({type(exc).__name__}: {exc})")
+        roi_results = {}
+    if roi_results:
+        roi_dir = dataset_dir / patient / "analysis" / "roi_locked"
+        print(f"  ✓ {patient}: ROI-locked analysis ({len(roi_results)} variant(s)) → {roi_dir}")
+
+    return {"patient": patient, "plots": written, "roi_locked": roi_results}
 
 
 def main():

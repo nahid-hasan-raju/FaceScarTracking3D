@@ -52,10 +52,17 @@ def format_timepoint_label(timepoint: str) -> str:
 
 
 def discover_patients(dataset_dir: Path):
-    """Every folder directly under the dataset root is treated as a patient."""
+    """Every folder directly under the dataset root that looks like a
+    patient ID (PAT01, PAT02, ...) is treated as a patient. Anything else
+    (analysis/, alignment_qc/, reports/, or any other dataset-level utility
+    folder) is correctly ignored, rather than blacklisting specific known
+    names one at a time."""
     if not dataset_dir.exists():
         return []
-    return sorted([p for p in dataset_dir.iterdir() if p.is_dir() and p.name != "reports"])
+    return sorted([
+        p for p in dataset_dir.iterdir()
+        if p.is_dir() and re.match(r"^PAT\d+$", p.name, re.IGNORECASE)
+    ])
 
 
 def discover_scan_dirs(dataset_dir: Path, patient: str):
@@ -188,3 +195,26 @@ def track_area_timeseries(track_entries: list):
         areas.append(area)
         unit = unit or this_unit
     return days, areas, unit
+
+
+
+
+
+
+def load_patient_tracking_series(dataset_dir: Path, patient: str):
+    """
+    Returns {variant: {track_id: (elapsed_days_list, area_list, area_unit), ...}}
+    for every variant that has a tracking.json for this patient. Mixed units
+    (mm2 vs pixels) within one track's series are flagged via the returned
+    area_unit -- callers should check before assuming a single unit.
+    """
+    series = {}
+    for variant in discover_patient_variants_with_tracking(dataset_dir, patient):
+        tracking = load_tracking_json(dataset_dir, patient, variant)
+        if not tracking:
+            continue
+        series[variant] = {
+            track_id: track_area_timeseries(entries)
+            for track_id, entries in tracking.get("tracks", {}).items()
+        }
+    return series
