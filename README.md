@@ -7,6 +7,8 @@ from raw 3D scanner output to a "how much has this patient healed" report.
 If you're new here: read this top-to-bottom once, then use the per-folder
 sections as reference while you actually run things.
 
+Live page: 
+Live page Repo: https://github.com/nahid-hasan-raju/FaceScarTracking3D-live 
 ---
 
 ## 1. What this project does, in one paragraph
